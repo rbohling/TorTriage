@@ -79,9 +79,20 @@ pip install -e .
 
 ### 2) Confirm Tor is local-only before testing
 
-- SOCKS proxy should be reachable at `127.0.0.1:9050`
-- Control port should be local-only (default `127.0.0.1:9051`)
-- Do **not** expose Tor control/SOCKS ports publicly
+Run these checks before you start measurements:
+
+```bash
+# Confirm Tor is listening on the expected ports
+nc -zv 127.0.0.1 9050
+nc -zv 127.0.0.1 9051
+
+# Confirm those listeners are bound only to localhost
+ss -ltn '( sport = :9050 or sport = :9051 )'
+```
+
+Expected result: listeners should show `127.0.0.1:9050` and `127.0.0.1:9051` (or `::1` for IPv6 localhost), **not** `0.0.0.0` or a public/private LAN IP.
+
+If you see non-local bindings, fix your Tor config before testing. Do **not** expose Tor SOCKS or control ports publicly.
 
 ### 3) Run a low-impact baseline first
 
