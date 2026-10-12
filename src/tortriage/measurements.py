@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from urllib.parse import urlparse
 
 import requests
 
@@ -10,6 +11,11 @@ from .models import MeasurementResult
 DEFAULT_TOR_PROXY = "socks5h://127.0.0.1:9050"
 
 
+def _is_tor_proxy(proxy_url: str) -> bool:
+    parsed = urlparse(proxy_url)
+    return parsed.scheme.lower() == "socks5h"
+
+
 def run_measurement(
     sample_url: str,
     *,
@@ -17,22 +23,28 @@ def run_measurement(
     tor_proxy: str = DEFAULT_TOR_PROXY,
     max_download_bytes: int = 512 * 1024,
 ) -> MeasurementResult:
+    if not _is_tor_proxy(tor_proxy):
+        return MeasurementResult(rtt_ms=None, throughput_mbps=None, sample_url=sample_url)
+
     proxies = {"http": tor_proxy, "https": tor_proxy}
     start = time.perf_counter()
     first_byte: float | None = None
     bytes_downloaded = 0
 
     try:
-        with requests.get(sample_url, stream=True, timeout=timeout_seconds, proxies=proxies) as response:
-            response.raise_for_status()
-            for chunk in response.iter_content(chunk_size=8192):
-                if not chunk:
-                    continue
-                if first_byte is None:
-                    first_byte = time.perf_counter()
-                bytes_downloaded += len(chunk)
-                if bytes_downloaded >= max_download_bytes:
-                    break
+        with requests.Session() as session:
+            session.trust_env = False
+            session.proxies.update(proxies)
+            with session.get(sample_url, stream=True, timeout=timeout_seconds) as response:
+                response.raise_for_status()
+                for chunk in response.iter_content(chunk_size=8192):
+                    if not chunk:
+                        continue
+                    if first_byte is None:
+                        first_byte = time.perf_counter()
+                    bytes_downloaded += len(chunk)
+                    if bytes_downloaded >= max_download_bytes:
+                        break
     except Exception:
         return MeasurementResult(rtt_ms=None, throughput_mbps=None, sample_url=sample_url)
 

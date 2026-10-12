@@ -49,6 +49,8 @@ The first deliverable should prioritize practical diagnostics over full network-
 - Prefer deterministic, scripted tests in the Linux VM so results are reproducible.
 - Start with CLI-only output; delay any GUI work unless time remains.
 - Track known limitations (Tor path churn, noisy measurements, unavailable node metadata).
+- Measurement traffic is Tor-only (`socks5h`), with direct-network fallback disabled.
+- Measurement requests ignore environment proxy variables to avoid accidental non-Tor routing.
 
 ## Python artifacts included for the MVP
 
