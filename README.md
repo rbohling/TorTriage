@@ -64,12 +64,49 @@ The first deliverable should prioritize practical diagnostics over full network-
 - `src/tortriage/models.py` shared run, circuit, and aggregation data models
 - `tests/test_classifier.py` baseline tests for classification behavior
 
-## Run
+## Practical safe run (recommended)
+
+Use a disposable Linux VM and a local Tor daemon so test traffic stays isolated from your normal browsing/session.
+
+### 1) Start in an isolated environment
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 pip install -e .
-tortriage --runs 4 --url https://check.torproject.org
 ```
+
+### 2) Confirm Tor is local-only before testing
+
+- SOCKS proxy should be reachable at `127.0.0.1:9050`
+- Control port should be local-only (default `127.0.0.1:9051`)
+- Do **not** expose Tor control/SOCKS ports publicly
+
+### 3) Run a low-impact baseline first
+
+```bash
+tortriage --runs 3 --delay-seconds 2 --timeout-seconds 20 --url https://check.torproject.org
+```
+
+This keeps request volume modest while validating your setup.
+
+### 4) Optional: include control-port authentication
+
+If your Tor control port requires a password:
+
+```bash
+tortriage --control-password 'your-password' --runs 4 --url https://check.torproject.org
+```
+
+### 5) Review output safely
+
+- CLI output prints circuit labels and bottleneck guesses per run
+- JSON report is written to `artifacts/tortriage-report.json` by default
+- Treat report artifacts as sensitive operational metadata; avoid sharing raw files publicly
+
+### Safety notes
+
+- Use test targets you are authorized to access
+- Avoid sending authenticated/personal traffic through measurement URLs
+- Keep default Tor-only routing behavior (no direct-network fallback)
