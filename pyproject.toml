@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tortriage"
+version = "0.1.0"
+description = "Client-side Tor performance measurements and bottleneck diagnostics"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "requests[socks]>=2.31.0",
+  "stem>=1.8.2",
+]
+
+[project.scripts]
+tortriage = "tortriage.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
