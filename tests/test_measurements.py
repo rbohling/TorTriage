@@ -43,6 +43,17 @@ class MeasurementTests(unittest.TestCase):
         self.assertIsNone(result.rtt_ms)
         self.assertIsNone(result.throughput_mbps)
 
+    def test_proxy_failure_never_retries_direct(self) -> None:
+        fake_session = _FakeSession()
+        with patch("tortriage.measurements.requests.Session", return_value=fake_session) as factory, \
+             patch.object(fake_session, "get", side_effect=OSError("proxy unavailable")) as get:
+            result = run_measurement("https://example.com")
+        self.assertIsNone(result.rtt_ms)
+        factory.assert_called_once()
+        get.assert_called_once()
+        self.assertFalse(fake_session.trust_env)
+        self.assertEqual(fake_session.proxies["https"], "socks5h://127.0.0.1:9050")
+
     def test_uses_session_without_env_fallback(self) -> None:
         fake_session = _FakeSession()
         with patch("tortriage.measurements.requests.Session", return_value=fake_session):
