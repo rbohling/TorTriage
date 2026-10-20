@@ -3,7 +3,7 @@ Client-side Tor performance measurements and fault-domain diagnostics.
 
 ## Project scope and delivery constraints
 
-- **Team:** 2 cybersecurity students
+- **Team:** 3 cybersecurity students
 - **Timeline:** 8 weeks
 - **Capacity:** ~2 hours/week each (32 total person-hours)
 - **Primary stack:** Python
