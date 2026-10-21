@@ -6,9 +6,8 @@ from pathlib import Path
 
 from .classifier import classify_bottleneck
 from .measurements import run_measurement
-from .models import AggregatedMetrics, RunResult, now_utc_iso
+from .models import AggregatedMetrics, CircuitInfo, RunResult, now_utc_iso
 from .reporting import to_cli_text, write_json_report
-from .tor_control import get_current_circuit
 
 
 def parse_args() -> argparse.Namespace:
@@ -30,7 +29,7 @@ def main() -> int:
     aggregate = AggregatedMetrics()
 
     for idx in range(runs):
-        circuit = get_current_circuit(args.control_host, args.control_port, args.control_password)
+        circuit = CircuitInfo(source="measurement-stream-not-correlated")
         measurement = run_measurement(args.url, timeout_seconds=args.timeout_seconds)
         classification, confidence, rationale = classify_bottleneck(measurement, circuit, aggregate)
 

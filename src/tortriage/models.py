@@ -11,6 +11,8 @@ class CircuitInfo:
     middle: str | None = None
     exit: str | None = None
     source: str = "unavailable"
+    attribution: str = "unverified"
+    attribution_reason: str = "No measurement-to-stream correlation was established."
 
 
 @dataclass(frozen=True)

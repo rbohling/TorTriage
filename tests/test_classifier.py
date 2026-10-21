@@ -5,28 +5,25 @@ from tortriage.models import AggregatedMetrics, CircuitInfo, MeasurementResult
 
 
 class ClassifierTests(unittest.TestCase):
-    def test_confidence_levels(self) -> None:
-        self.assertEqual(confidence(1), "low")
-        self.assertEqual(confidence(4), "medium")
-        self.assertEqual(confidence(8), "high")
+    def test_repetition_does_not_establish_cause(self):
+        for count in (1, 4, 8, 100):
+            self.assertEqual(confidence(count), "low")
 
-    def test_classification_when_measurement_fails(self) -> None:
-        label, conf, _ = classify_bottleneck(
-            MeasurementResult(rtt_ms=None, throughput_mbps=None, sample_url="https://example.com"),
-            CircuitInfo(),
-            AggregatedMetrics(),
-        )
-        self.assertEqual(label, "local_or_tor_unavailable")
-        self.assertEqual(conf, "low")
-
-    def test_classification_exit_congestion(self) -> None:
-        label, _, _ = classify_bottleneck(
-            MeasurementResult(rtt_ms=600.0, throughput_mbps=0.5, sample_url="https://example.com"),
-            CircuitInfo(entry="a", middle="b", exit="c", source="control-port"),
-            AggregatedMetrics(),
-        )
-        self.assertEqual(label, "exit_or_upstream_congestion")
-
-
-if __name__ == "__main__":
-    unittest.main()
+    def test_only_end_to_end_observations_are_classified(self):
+        for circuit in (CircuitInfo(), CircuitInfo(entry="a", middle="b", exit="c")):
+            for latency, throughput, expected in (
+                (None, None, "measurement_unavailable"),
+                (600, .5, "high_latency_and_low_throughput"),
+                (600, 2, "high_latency"),
+                (100, .5, "low_throughput"),
+                (100, 2, "within_configured_thresholds"),
+                (450, 1.2, "within_configured_thresholds"),
+            ):
+                with self.subTest(latency=latency, throughput=throughput, circuit=circuit):
+                    label, conf, rationale = classify_bottleneck(
+                        MeasurementResult(latency, throughput, "https://example.com"),
+                        circuit, AggregatedMetrics(),
+                    )
+                    self.assertEqual(label, expected)
+                    self.assertEqual(conf, "low")
+                    self.assertIn("cannot locate a bottleneck", rationale)

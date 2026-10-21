@@ -28,6 +28,7 @@ def to_cli_text(run: RunResult) -> str:
     measurement = run.measurement
     return (
         f"[{run.timestamp}] classification={run.classification} confidence={run.confidence}\n"
+        f"  circuit_attribution={circuit.attribution}: {circuit.attribution_reason}\n"
         f"  entry={circuit.entry or 'n/a'} middle={circuit.middle or 'n/a'} exit={circuit.exit or 'n/a'}\n"
         f"  source={circuit.source} rtt_ms={measurement.rtt_ms} throughput_mbps={measurement.throughput_mbps}\n"
         f"  rationale={run.rationale}"
