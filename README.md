@@ -23,13 +23,13 @@ Build a lightweight Tor network analyzer that helps identify likely bottlenecks 
 The first deliverable should prioritize practical diagnostics over full network-wide certainty:
 
 1. Collect repeatable latency and throughput measurements from the local Tor client.
-2. Correlate measurements with currently selected Tor circuit nodes (entry/middle/exit).
-3. Flag the most likely bottleneck segment based on repeated degraded results.
+2. Report circuit attribution explicitly as unverified until measurement-to-stream correlation exists.
+3. Flag observed end-to-end degradation without assigning a relay or local fault domain.
 4. Output a simple per-test report (CLI text and JSON) with:
    - timestamp
-   - circuit fingerprints/nicknames (when available)
+   - circuit attribution status and reason (relay fields remain empty without evidence)
    - measured RTT/throughput
-   - suspected bottleneck classification
+   - end-to-end performance classification
    - confidence score (low/medium/high)
 
 ## Suggested 8-week plan (2 hours/week)
@@ -112,7 +112,7 @@ tortriage --control-password 'your-password' --runs 4 --url https://check.torpro
 
 ### 5) Review output safely
 
-- CLI output prints circuit labels and bottleneck guesses per run
+- CLI output prints explicit unverified circuit attribution and end-to-end observations per run
 - JSON report is written to `artifacts/tortriage-report.json` by default
 - Treat report artifacts as sensitive operational metadata; avoid sharing raw files publicly
 
@@ -121,3 +121,41 @@ tortriage --control-password 'your-password' --runs 4 --url https://check.torpro
 - Use test targets you are authorized to access
 - Avoid sending authenticated/personal traffic through measurement URLs
 - Keep default Tor-only routing behavior (no direct-network fallback)
+
+## Attribution accuracy and compatibility
+
+The current prototype deliberately **does not attribute measurements to circuits**.
+`circuit.attribution` is `unverified`, `attribution_reason` explains the missing
+correlation, and relay fields are empty in CLI/JSON reports. Control-port options
+remain accepted for CLI compatibility but are currently unused. The
+`get_current_circuit()` compatibility API returns an unverified result without
+querying Tor: the newest built circuit is not evidence of the measurement path.
+
+Tor's [STREAM event specification](https://spec.torproject.org/control-spec/replies.html#stream-status-changed)
+provides a stream ID, attached circuit ID (0 means unattached), status, and optional
+SOCKS credentials. These can support attribution **when** the application first
+subscribes to events and unambiguously correlates its actual SOCKS connections
+(e.g., unique per-measurement SOCKS credentials). A future implementation must
+track successful attachment rather than NEW/initial attachment, handle detach and
+reattach, redirects/retries using multiple streams/circuits, drain asynchronous
+events, and retain the relevant circuit paths before they disappear. Missing
+identity fields, event loss, unsupported versions, control failures, or ambiguous
+matches must leave attribution unverified. Matching only target or event timing
+is insufficient when concurrent traffic uses the same Tor client. No stream
+attachment or global Tor configuration changes are made by this fix.
+
+Even verified stream-to-circuit mapping would identify a path, not measure each
+relay's latency or capacity. Fixed thresholds now produce only `high_latency`,
+`low_throughput`, `high_latency_and_low_throughput`, or
+`within_configured_thresholds`; failed samples produce `measurement_unavailable`.
+These replace the old speculative fault-domain labels. Consumers should update
+label handling. Confidence stays low regardless of repetition. The legacy
+`rtt_ms` field measures time to the first body chunk (including connection, TLS,
+server, and buffering delays), not a network RTT. Throughput is a small HTTP
+sample estimate, not a calibrated relay capacity measurement.
+
+Offline regression checks (no Tor daemon or live HTTP measurements required):
+
+```bash
+PYTHONPATH=src python -m unittest discover -s tests -v
+```

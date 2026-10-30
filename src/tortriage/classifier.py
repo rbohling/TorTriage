@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from .models import AggregatedMetrics, CircuitInfo, MeasurementResult
 
+# Illustrative end-to-end thresholds, not calibrated per-relay baselines.
 BASELINE_RTT_MS = 450
 BASELINE_THROUGHPUT_MBPS = 1.2
 
@@ -11,56 +12,34 @@ def classify_bottleneck(
     circuit: CircuitInfo,
     aggregate: AggregatedMetrics,
 ) -> tuple[str, str, str]:
+    # Neither circuit names nor repeated samples establish per-relay performance.
+    limitation = " End-to-end measurements cannot locate a bottleneck or diagnose individual relays."
     if measurement.rtt_ms is None or measurement.throughput_mbps is None:
         return (
-            "local_or_tor_unavailable",
+            "measurement_unavailable",
             "low",
-            "Measurement failed through configured Tor proxy or endpoint.",
+            "Measurement failed through the configured Tor proxy or endpoint; cause undetermined." + limitation,
         )
 
-    avg_rtt = aggregate.avg_rtt_ms or measurement.rtt_ms
-    avg_tp = aggregate.avg_throughput_mbps or measurement.throughput_mbps
-
-    high_rtt = measurement.rtt_ms > BASELINE_RTT_MS
-    low_tp = measurement.throughput_mbps < BASELINE_THROUGHPUT_MBPS
-
-    if high_rtt and low_tp:
-        if not circuit.exit:
-            return (
-                "local_client_or_network",
-                confidence(len(aggregate.runs) + 1),
-                "High latency and low throughput with missing exit metadata.",
-            )
-        return (
-            "exit_or_upstream_congestion",
-            confidence(len(aggregate.runs) + 1),
-            "High latency plus low throughput suggests exit segment congestion.",
-        )
-
-    if high_rtt and measurement.throughput_mbps >= avg_tp:
-        return (
-            "middle_relay_path_latency",
-            confidence(len(aggregate.runs) + 1),
-            "Latency spike without throughput collapse suggests middle relay path delay.",
-        )
-
-    if low_tp and measurement.rtt_ms <= avg_rtt:
-        return (
-            "entry_guard_or_local_saturation",
-            confidence(len(aggregate.runs) + 1),
-            "Throughput drop without RTT spike suggests guard or local saturation.",
-        )
-
+    high_latency = measurement.rtt_ms > BASELINE_RTT_MS
+    low_throughput = measurement.throughput_mbps < BASELINE_THROUGHPUT_MBPS
+    if high_latency and low_throughput:
+        label = "high_latency_and_low_throughput"
+    elif high_latency:
+        label = "high_latency"
+    elif low_throughput:
+        label = "low_throughput"
+    else:
+        label = "within_configured_thresholds"
     return (
-        "no_clear_bottleneck",
-        confidence(len(aggregate.runs) + 1),
-        "Observed metrics remain within baseline bounds.",
+        label,
+        "low",
+        "Observed end-to-end performance compared with illustrative fixed thresholds "
+        f"({BASELINE_RTT_MS} ms time to first body chunk, {BASELINE_THROUGHPUT_MBPS} Mbps)."
+        + limitation,
     )
 
 
 def confidence(run_count: int) -> str:
-    if run_count >= 8:
-        return "high"
-    if run_count >= 4:
-        return "medium"
+    """Compatibility helper: repetition alone does not increase diagnostic certainty."""
     return "low"
