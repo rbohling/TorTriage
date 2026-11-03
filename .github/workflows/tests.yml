@@ -33,3 +33,67 @@ jobs:
         env:
           PYTHONPATH: src
         run: python -m unittest discover -s tests -v
+
+  chutney:
+    name: Chutney network integration and evaluation
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7.1.0
+        with:
+          python-version: '3.12'
+      - name: Install Tor and project
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y tor
+          python -m pip install .
+      - name: Fetch Chutney
+        env:
+          CHUTNEY_COMMIT: 62b54a55215c94eb14adc22c5acd17b2ada04b76
+        run: |
+          git clone --quiet https://github.com/torproject/chutney.git "$RUNNER_TEMP/chutney"
+          git -C "$RUNNER_TEMP/chutney" checkout --quiet "$CHUTNEY_COMMIT"
+      - name: Start and verify isolated Chutney network
+        env:
+          CHUTNEY_DIR: ${{ runner.temp }}/chutney
+          CHUTNEY_DATA_DIR: ${{ runner.temp }}/chutney-net
+          CHUTNEY_TOR_SANDBOX: '0'
+          CHUTNEY_DNS_CONF: /dev/null
+        run: |
+          set -euo pipefail
+          export CHUTNEY_CONTROLLING_PID=$$
+          trap '"$CHUTNEY_DIR/chutney" stop networks/basic-min || true' EXIT
+          cd "$CHUTNEY_DIR"
+          ./chutney configure networks/basic-min
+          ./chutney start networks/basic-min
+          ./chutney wait_for_bootstrap networks/basic-min
+          ./chutney verify networks/basic-min
+          client_torrc="$(find "$CHUTNEY_DATA_DIR/nodes" -path '*/[0-9][0-9][0-9]c/torrc' -type f -print -quit)"
+          test -n "$client_torrc"
+          socks_port="$(awk '$1 == "SocksPort" { print $2; exit }' "$client_torrc")"
+          test -n "$socks_port"
+          test "$socks_port" -gt 0
+          cd "$GITHUB_WORKSPACE"
+          python -m http.server 18080 --bind 127.0.0.1 >"$RUNNER_TEMP/http-server.log" 2>&1 &
+          http_pid=$!
+          trap 'kill "$http_pid" 2>/dev/null || true; "$CHUTNEY_DIR/chutney" stop networks/basic-min || true' EXIT
+          sleep 1
+          PYTHONPATH=src python -m tortriage \
+            --url http://127.0.0.1:18080/README.md \
+            --tor-proxy "socks5h://127.0.0.1:${socks_port}" \
+            --runs 3 \
+            --delay-seconds 0 \
+            --timeout-seconds 30 \
+            --json-output artifacts/chutney-report.json
+      - name: Upload Chutney evaluation report
+        if: always()
+        uses: actions/upload-artifact@v6.0.0
+        with:
+          name: chutney-evaluation
+          path: |
+            artifacts/chutney-report.json
+            ${{ runner.temp }}/http-server.log
+          if-no-files-found: warn

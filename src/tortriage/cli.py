@@ -19,6 +19,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--control-host", default="127.0.0.1", help="Tor control host")
     parser.add_argument("--control-port", type=int, default=9051, help="Tor control port")
     parser.add_argument("--control-password", default=None, help="Tor control password")
+    parser.add_argument(
+        "--tor-proxy",
+        default="socks5h://127.0.0.1:9050",
+        help="SOCKS5 hostname proxy used for measurements",
+    )
     parser.add_argument("--json-output", default="artifacts/tortriage-report.json", help="JSON report path")
     return parser.parse_args()
 
@@ -30,7 +35,11 @@ def main() -> int:
 
     for idx in range(runs):
         circuit = CircuitInfo(source="measurement-stream-not-correlated")
-        measurement = run_measurement(args.url, timeout_seconds=args.timeout_seconds)
+        measurement = run_measurement(
+            args.url,
+            timeout_seconds=args.timeout_seconds,
+            tor_proxy=getattr(args, "tor_proxy", "socks5h://127.0.0.1:9050"),
+        )
         classification, confidence, rationale = classify_bottleneck(measurement, circuit, aggregate)
 
         run = RunResult(
