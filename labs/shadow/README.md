@@ -4,14 +4,25 @@ One Ubuntu 24.04 x86-64 VM runs Shadow 3.3.0, Tor, TGen, and TorTriage.
 This is a small proof of concept for future research. Vagrant uses a
 preinstalled Ubuntu box, so no ISO installation is required.
 
-**Status: prepared, not runtime-verified.** VirtualBox's command interface
-returned E_ACCESSDENIED, then the local computer connection became unavailable
-on 2026-11-16. No successful VM start, provisioning, syntax check, Shadow build,
-or simulation is claimed for these new files. The checks below must pass first.
+**Status: locally checked, not runtime-verified.** On 2026-11-16, Vagrant
+configuration validation, Ruby/Python/PowerShell syntax checks, nine report
+validation cases, and shell-file LF line-ending checks passed. Bash syntax
+checking was blocked by the execution environment. VirtualBox's command
+interface still returns E_ACCESSDENIED from the automation session, so no
+successful VM start, Linux provisioning, Shadow build, or simulation is claimed.
 
 ## Start from Windows PowerShell
 
 Vagrant and VirtualBox must be installed. From this directory:
+
+```powershell
+.\Start-Demo.ps1
+```
+
+The launcher checks VirtualBox access, validates the configuration, provisions
+the VM, and runs the baseline. Use `-Mode both` to run baseline and latency.
+It stops on failure and never deletes an existing VM. Run it in your normal
+PowerShell session. The equivalent individual commands are:
 
 ```powershell
 vagrant validate
