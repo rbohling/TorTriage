@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+checkout=/vagrant
+demo_user=vagrant
+if [[ ${1:-} == --ci ]]; then
+    checkout=$PWD
+    demo_user=${SUDO_USER:?Run CI provisioning with sudo}
+fi
+
 export DEBIAN_FRONTEND=noninteractive
 systemctl mask tor.service tor@default.service
 apt-get update
@@ -26,14 +33,16 @@ if [[ ! -x /usr/local/bin/shadow ]]; then
 fi
 
 python3 -m venv --copies "$root/venv"
-cp -r /vagrant/src /vagrant/pyproject.toml /vagrant/README.md "$root/"
+cp -r "$checkout"/{src,pyproject.toml,README.md} "$root/"
 "$root/venv/bin/pip" install "$root"
 install -d "$root/demo"
-install -m 644 /vagrant/demo/{dashboard.py,dashboard.html,fixture.py,shadow.yaml} "$root/demo/"
-install -m 755 /vagrant/demo/run.sh /usr/local/bin/tortriage-demo
+install -m 644 "$checkout"/demo/{dashboard.py,dashboard.html,fixture.py,shadow.yaml} "$root/demo/"
+install -m 755 "$checkout/demo/run.sh" /usr/local/bin/tortriage-demo
 ln -sfn "$root/venv/bin/tortriage" /usr/local/bin/tortriage
-install -o vagrant -g vagrant -d /var/lib/tortriage
-install -m 644 /vagrant/demo/tortriage-dashboard.service /etc/systemd/system/
-systemctl daemon-reload
-systemctl enable tortriage-dashboard.service
-systemctl restart tortriage-dashboard.service
+install -o "$demo_user" -g "$(id -gn "$demo_user")" -d /var/lib/tortriage
+if [[ ${1:-} != --ci ]]; then
+    install -m 644 "$checkout/demo/tortriage-dashboard.service" /etc/systemd/system/
+    systemctl daemon-reload
+    systemctl enable tortriage-dashboard.service
+    systemctl restart tortriage-dashboard.service
+fi

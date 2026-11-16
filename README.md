@@ -193,21 +193,10 @@ Offline regression checks (no Tor daemon or live HTTP measurements required):
 PYTHONPATH=src python -m unittest discover -s tests -v
 ```
 
-## Chutney network evaluation
+## Shadow integration in GitHub Actions
 
-CI also runs a separate integration job with [Chutney](https://github.com/torproject/chutney).
-It launches Chutney's isolated `basic-min` test network, runs Chutney's bootstrap and
-traffic verification, then measures a local HTTP fixture through the generated client
-SOCKS port with TorTriage. The job uploads the JSON report as a workflow artifact.
-
-For a local run, install `tor` and clone Chutney, then use its normal lifecycle:
-
-```bash
-CHUTNEY_TOR_SANDBOX=0 CHUTNEY_DNS_CONF=/dev/null \
-  ./chutney/tools/test-network.sh --chutney-path ./chutney --flavor basic-min
-```
-
-TorTriage accepts `--tor-proxy socks5h://127.0.0.1:PORT` when the test client uses
-a non-default Chutney SOCKS port. Chutney evaluation validates end-to-end behavior
-through a controlled test network; it does not make relay-level attribution
-verified.
+CI runs both demo scenarios directly on Ubuntu 24.04 using the same Shadow
+configuration and CLI as the Vagrant guest. It checks four successful samples
+per scenario, confirms that the constrained response reduces measured
+throughput, and verifies the dashboard API. The workflow uploads JSON reports
+and simulation logs as the `shadow-demo-results` artifact.

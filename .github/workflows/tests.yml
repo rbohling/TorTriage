@@ -1,4 +1,4 @@
-name: Offline regression tests
+name: TorTriage tests
 
 on:
   pull_request:
@@ -34,66 +34,54 @@ jobs:
           PYTHONPATH: src
         run: python -m unittest discover -s tests -v
 
-  chutney:
-    name: Chutney network integration and evaluation
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+  shadow:
+    name: Shadow demo integration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-python@v7.1.0
-        with:
-          python-version: '3.12'
-      - name: Install Tor and project
+      - name: Provision the Shadow demo
+        run: sudo bash demo/provision.sh --ci
+      - name: Run baseline and constrained scenarios
         run: |
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends -y tor
-          python -m pip install .
-      - name: Fetch Chutney
-        env:
-          CHUTNEY_COMMIT: 62b54a55215c94eb14adc22c5acd17b2ada04b76
+          shadow --version
+          tortriage-demo baseline
+          tortriage-demo constrained
+      - name: Verify dashboard reports
         run: |
-          git clone --quiet https://github.com/torproject/chutney.git "$RUNNER_TEMP/chutney"
-          git -C "$RUNNER_TEMP/chutney" checkout --quiet "$CHUTNEY_COMMIT"
-      - name: Start and verify isolated Chutney network
-        env:
-          CHUTNEY_DIR: ${{ runner.temp }}/chutney
-          CHUTNEY_DATA_DIR: ${{ runner.temp }}/chutney-net
-          CHUTNEY_TOR_SANDBOX: '0'
-          CHUTNEY_DNS_CONF: /dev/null
-        run: |
-          set -euo pipefail
-          export CHUTNEY_CONTROLLING_PID=$$
-          trap '"$CHUTNEY_DIR/chutney" stop networks/basic-min || true' EXIT
-          cd "$CHUTNEY_DIR"
-          ./chutney configure networks/basic-min
-          ./chutney start networks/basic-min
-          ./chutney wait_for_bootstrap networks/basic-min
-          ./chutney verify networks/basic-min
-          client_torrc="$(find "$CHUTNEY_DATA_DIR/nodes" -path '*/[0-9][0-9][0-9]c/torrc' -type f -print -quit)"
-          test -n "$client_torrc"
-          socks_port="$(awk '$1 == "SocksPort" { print $2; exit }' "$client_torrc")"
-          test -n "$socks_port"
-          test "$socks_port" -gt 0
-          cd "$GITHUB_WORKSPACE"
-          python -m http.server 18080 --bind 127.0.0.1 >"$RUNNER_TEMP/http-server.log" 2>&1 &
-          http_pid=$!
-          trap 'kill "$http_pid" 2>/dev/null || true; "$CHUTNEY_DIR/chutney" stop networks/basic-min || true' EXIT
-          sleep 1
-          PYTHONPATH=src python -m tortriage \
-            --url http://127.0.0.1:18080/README.md \
-            --tor-proxy "socks5h://127.0.0.1:${socks_port}" \
-            --runs 3 \
-            --delay-seconds 0 \
-            --timeout-seconds 30 \
-            --json-output artifacts/chutney-report.json
-      - name: Upload Chutney evaluation report
+          /usr/bin/python3 /opt/tortriage/demo/dashboard.py >"$RUNNER_TEMP/dashboard.log" 2>&1 &
+          dashboard_pid=$!
+          trap 'kill "$dashboard_pid" 2>/dev/null || true' EXIT
+          curl --fail --silent --show-error --retry 5 --retry-connrefused \
+            http://127.0.0.1:8787/ --output "$RUNNER_TEMP/dashboard.html"
+          curl --fail --silent --show-error http://127.0.0.1:8787/api/results \
+            --output "$RUNNER_TEMP/dashboard-results.json"
+          python3 - "$RUNNER_TEMP/dashboard-results.json" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          reports = json.loads(Path(sys.argv[1]).read_text())
+          for scenario in ("baseline", "constrained"):
+              report = reports[scenario]
+              assert report["demo"]["scenario"] == scenario, scenario
+              assert report["demo"]["successful"] == report["summary"]["runs"] == 4, scenario
+              assert all(sample["circuit"]["attribution"] == "unverified" for sample in report["results"])
+          baseline = reports["baseline"]["summary"]["avg_throughput_mbps"]
+          constrained = reports["constrained"]["summary"]["avg_throughput_mbps"]
+          assert 0 < constrained < baseline, (baseline, constrained)
+          print(f"Baseline {baseline} Mbps, constrained {constrained} Mbps")
+          PY
+      - name: Upload Shadow reports and logs
         if: always()
         uses: actions/upload-artifact@v6.0.0
         with:
-          name: chutney-evaluation
+          name: shadow-demo-results
           path: |
-            artifacts/chutney-report.json
-            ${{ runner.temp }}/http-server.log
+            /var/lib/tortriage/baseline.json
+            /var/lib/tortriage/constrained.json
+            /var/lib/tortriage/*/shadow.log
+            ${{ runner.temp }}/dashboard.log
           if-no-files-found: warn
