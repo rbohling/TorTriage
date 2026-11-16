@@ -1,0 +1,22 @@
+Vagrant.configure("2") do |config|
+  config.vm.box = "bento/ubuntu-24.04"
+  config.vm.box_version = "202510.26.0"
+  config.vm.box_check_update = false
+  config.vm.hostname = "tortriage-shadow-demo"
+  config.vm.boot_timeout = 600
+  config.vm.synced_folder ".", "/vagrant", disabled: true
+  config.vm.network "forwarded_port", guest: 22, host: 2222,
+    host_ip: "127.0.0.1", id: "ssh", auto_correct: true
+
+  config.vm.provider "virtualbox" do |vb|
+    vb.gui = false
+    vb.memory = Integer(ENV.fetch("SHADOW_VM_MEMORY", "6144"))
+    vb.cpus = Integer(ENV.fetch("SHADOW_VM_CPUS", "2"))
+  end
+
+  ["guest-build.sh", "demo.py"].each do |file|
+    config.vm.provision "file", source: file,
+      destination: "/tmp/tortriage-shadow-#{file}"
+  end
+  config.vm.provision "shell", path: "provision.sh"
+end

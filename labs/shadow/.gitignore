@@ -1,0 +1,4 @@
+.vagrant/
+results/
+ssh-config
+__pycache__/
