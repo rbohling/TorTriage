@@ -1,0 +1,95 @@
+# Private Tor roles and startup times follow Shadow's v3.3.0 Tor example.
+general:
+  stop_time: 30 min
+network:
+  graph:
+    type: gml
+    inline: |
+      graph [
+        directed 0
+        node [
+          id 0
+          host_bandwidth_down "1 Gbit"
+          host_bandwidth_up "1 Gbit"
+        ]
+        edge [
+          source 0
+          target 0
+          latency "50 ms"
+          jitter "0 ms"
+          packet_loss 0.0
+        ]
+      ]
+hosts:
+  fileserver:
+    network_node_id: 0
+    ip_addr: 11.0.0.20
+    processes:
+      - path: /usr/bin/python3
+        args: /opt/tortriage/demo/fixture.py ../../../fixture @BYTES_PER_SECOND@
+        start_time: 1s
+        expected_final_state: running
+  4uthority:
+    network_node_id: 0
+    ip_addr: 100.0.0.1
+    processes:
+      - path: /usr/bin/tor
+        expected_final_state: running
+        args: --Address 4uthority --Nickname 4uthority --defaults-torrc torrc-defaults -f torrc
+        start_time: 1s
+  exit1:
+    network_node_id: 0
+    processes:
+      - path: /usr/bin/tor
+        expected_final_state: running
+        start_time: 60s
+        args: --Address exit1 --Nickname exit1 --defaults-torrc torrc-defaults -f torrc
+  exit2:
+    network_node_id: 0
+    processes:
+      - path: /usr/bin/tor
+        expected_final_state: running
+        start_time: 60s
+        args: --Address exit2 --Nickname exit2 --defaults-torrc torrc-defaults -f torrc
+  relay1:
+    network_node_id: 0
+    processes:
+      - path: /usr/bin/tor
+        expected_final_state: running
+        start_time: 60s
+        args: --Address relay1 --Nickname relay1 --defaults-torrc torrc-defaults -f torrc
+  relay2:
+    network_node_id: 0
+    processes:
+      - path: /usr/bin/tor
+        expected_final_state: running
+        start_time: 60s
+        args: --Address relay2 --Nickname relay2 --defaults-torrc torrc-defaults -f torrc
+  relay3:
+    network_node_id: 0
+    processes:
+      - path: /usr/bin/tor
+        expected_final_state: running
+        start_time: 60s
+        args: --Address relay3 --Nickname relay3 --defaults-torrc torrc-defaults -f torrc
+  relay4:
+    network_node_id: 0
+    processes:
+      - path: /usr/bin/tor
+        expected_final_state: running
+        start_time: 60s
+        args: --Address relay4 --Nickname relay4 --defaults-torrc torrc-defaults -f torrc
+  torclient:
+    network_node_id: 0
+    processes:
+      - path: /usr/bin/tor
+        expected_final_state: running
+        args: --Address torclient --Nickname torclient --defaults-torrc torrc-defaults -f torrc
+        start_time: 900s
+      - path: /opt/tortriage/venv/bin/python
+        args: >-
+          -m tortriage --url http://11.0.0.20/payload.bin --runs 4
+          --timeout-seconds 30 --tor-proxy socks5h://127.0.0.1:9000
+          --json-output tortriage-report.json
+        start_time: 1500s
+        expected_final_state: {exited: 0}

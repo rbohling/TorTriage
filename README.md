@@ -1,6 +1,39 @@
 # TorTriage
 Client-side Tor performance measurements and fault-domain diagnostics.
 
+## Shadow demo in Oracle VirtualBox
+
+Run from the repository root on a host with Vagrant and Oracle VirtualBox.
+The Ubuntu 24.04 guest uses 4 vCPUs and 6 GB of RAM. First provisioning needs
+internet access and compiles Shadow v3.3.0 from source.
+
+```powershell
+vagrant up --provider=virtualbox
+vagrant ssh -c "tortriage-demo baseline"
+vagrant ssh -c "tortriage-demo constrained"
+```
+
+Open [the dashboard](http://127.0.0.1:8787). It refreshes automatically and
+compares the latest reports from both scenarios. Each command runs four CLI
+measurements through a private Shadow Tor client to a 512 KiB HTTP fixture.
+In the constrained scenario, the fixture paces the HTTP response body at
+512 Kbit/s using Shadow's simulated clock.
+The CLI's per-sample timestamps and measurements use Shadow's simulated clock.
+The dashboard's completion time uses the guest's wall clock. TorTriage applies
+end-to-end thresholds and reports circuit attribution as unverified.
+
+The topology uses one directory authority, four guard/middle candidates and two
+exits from the pinned [Shadow Tor example](https://github.com/shadow/shadow/tree/v3.3.0/examples/docs/tor).
+The target uses a fixed simulated IP so the demo can run without an exit DNS
+server. The HTTP fixture and SOCKS listener exist inside Shadow. Only the
+dashboard has a demo port forwarded to the Windows loopback interface.
+
+The runner prints a guest directory under `/var/lib/tortriage/` for each run.
+It contains `shadow.log` and per-process stdout/stderr under `shadow.data/hosts/`.
+The latest reports are also available at
+[the JSON endpoint](http://127.0.0.1:8787/api/results).
+Run `vagrant halt` to stop the VM and keep its reports.
+
 ## Project scope and delivery constraints
 
 - **Team:** 3 cybersecurity students
