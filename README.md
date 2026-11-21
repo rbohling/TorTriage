@@ -20,7 +20,8 @@ In the constrained scenario, the fixture paces the HTTP response body at
 512 Kbit/s using Shadow's simulated clock.
 The CLI's per-sample timestamps and measurements use Shadow's simulated clock.
 The dashboard's completion time uses the guest's wall clock. TorTriage applies
-end-to-end thresholds and reports circuit attribution as unverified.
+end-to-end thresholds and attributes each sample to its circuit through the
+client's control port.
 
 The topology uses one directory authority, four guard/middle candidates and two
 exits from the pinned [Shadow Tor example](https://github.com/shadow/shadow/tree/v3.3.0/examples/docs/tor).
@@ -56,7 +57,7 @@ Build a lightweight Tor network analyzer that helps identify likely bottlenecks 
 The first deliverable should prioritize practical diagnostics over full network-wide certainty:
 
 1. Collect repeatable latency and throughput measurements from the local Tor client.
-2. Report circuit attribution explicitly as unverified until measurement-to-stream correlation exists.
+2. Report circuit attribution as verified only when the measurement's own stream is correlated to a circuit via the control port; otherwise report it as unverified with a reason.
 3. Flag observed end-to-end degradation without assigning a relay or local fault domain.
 4. Output a simple per-test report (CLI text and JSON) with:
    - timestamp
@@ -135,13 +136,20 @@ tortriage --runs 3 --delay-seconds 2 --timeout-seconds 20 --url https://check.to
 
 This keeps request volume modest while validating your setup.
 
-### 4) Optional: include control-port authentication
+### 4) Enable Tor's control port (for circuit attribution)
 
-If your Tor control port requires a password:
+TorTriage authenticates with Tor's **control cookie**; passwords are not supported.
+Add this to your `torrc` and restart Tor:
 
-```bash
-tortriage --control-password 'your-password' --runs 4 --url https://check.torproject.org
 ```
+ControlPort 127.0.0.1:9051
+CookieAuthentication 1
+```
+
+The user running TorTriage must be able to read Tor's `control_auth_cookie` file
+(on Debian/Ubuntu, add your user to the `debian-tor` group). If the control port
+cannot be used, TorTriage prints a warning with the reason and the fix, still
+measures, and reports attribution as `unverified`.
 
 ### 5) Review output safely
 
@@ -157,25 +165,57 @@ tortriage --control-password 'your-password' --runs 4 --url https://check.torpro
 
 ## Attribution accuracy and compatibility
 
-The current prototype deliberately **does not attribute measurements to circuits**.
-`circuit.attribution` is `unverified`, `attribution_reason` explains the missing
-correlation, and relay fields are empty in CLI/JSON reports. Control-port options
-remain accepted for CLI compatibility but are currently unused. The
-`get_current_circuit()` compatibility API returns an unverified result without
-querying Tor: the newest built circuit is not evidence of the measurement path.
+The prototype attributes a measurement to a circuit **only with direct evidence**
+from Tor's control port; otherwise it reports `unverified` and leaves relay fields
+empty. Each measurement uses unique SOCKS credentials, which Tor isolates and
+echoes in STREAM events. `CircuitAttributor` in `tor_control.py` subscribes to
+STREAM and CIRC events before the measurement starts, matches streams by those
+credentials, and uses a stream's `SUCCEEDED` event (not NEW or `SENTCONNECT`) for
+its circuit ID. The circuit path comes from the BUILT event (or a snapshot taken at
+start, or a live query). Without a reachable, authenticated control port the tool
+sends no credentials, behaves as before, and reports `unverified` with the reason.
+Attribution stays `unverified` when:
+
+- no STREAM event carries the measurement's credentials (e.g. an older Tor),
+- no matched stream succeeded, or matched streams succeeded on different circuits,
+- the circuit path is unavailable or is not exactly three identified hops,
+- the control connection was lost during the measurement.
+
+Concurrent traffic through the same Tor client does not affect matching, because
+only streams with this measurement's credentials are considered. Because Tor
+isolates by SOCKS credentials, each measurement now builds or uses its own circuit
+instead of sharing one across runs.
+
+### Port auto-detection
+
+With no port options, the CLI looks for a local Tor client itself, so system Tor
+and Tor Browser both work:
+
+1. It tries the control ports `9051` (system Tor) then `9151` (Tor Browser),
+   authenticating with the control cookie.
+2. It asks that Tor for its SOCKS listener, so the two ports always belong to the
+   same Tor instance. Only loopback listeners are used.
+3. If no control port is usable, it prints a warning with the reason and how to fix
+   it, then probes SOCKS ports `9050` then `9150` with a SOCKS5 greeting.
+   Measurements still run, but attribution stays `unverified`.
+
+`--tor-proxy` and `--control-port` override detection. The control port is always
+reached on `127.0.0.1` (there is no option to change that), and both
+ports must be loopback-only. The Shadow demo passes `--tor-proxy` explicitly.
+
+The simulated demo client is configured like a real user's Tor: `ControlPort
+127.0.0.1:9051` with `CookieAuthentication 1`, on the client only (relays have no
+control port). The demo prints how many runs were attributed to a circuit. The
+`get_current_circuit()` compatibility API
+still returns an unverified result without querying Tor: the newest built circuit is
+not evidence of the measurement path.
+
+Remaining limits: control-port event loss other than a dropped connection cannot be
+detected, and a path identifies the circuit, not each relay's latency or capacity.
 
 Tor's [STREAM event specification](https://spec.torproject.org/control-spec/replies.html#stream-status-changed)
 provides a stream ID, attached circuit ID (0 means unattached), status, and optional
-SOCKS credentials. These can support attribution **when** the application first
-subscribes to events and unambiguously correlates its actual SOCKS connections
-(e.g., unique per-measurement SOCKS credentials). A future implementation must
-track successful attachment rather than NEW/initial attachment, handle detach and
-reattach, redirects/retries using multiple streams/circuits, drain asynchronous
-events, and retain the relevant circuit paths before they disappear. Missing
-identity fields, event loss, unsupported versions, control failures, or ambiguous
-matches must leave attribution unverified. Matching only target or event timing
-is insufficient when concurrent traffic uses the same Tor client. No stream
-attachment or global Tor configuration changes are made by this fix.
+SOCKS credentials.
 
 Even verified stream-to-circuit mapping would identify a path, not measure each
 relay's latency or capacity. Fixed thresholds now produce only `high_latency`,

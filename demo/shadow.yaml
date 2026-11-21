@@ -1,6 +1,8 @@
 # Private Tor roles and startup times follow Shadow's v3.3.0 Tor example.
 general:
   stop_time: 30 min
+  # Lets Python's control-port threads advance simulated time instead of stalling it.
+  model_unblocked_syscall_latency: true
 network:
   graph:
     type: gml
@@ -87,6 +89,7 @@ hosts:
         args: --Address torclient --Nickname torclient --defaults-torrc torrc-defaults -f torrc
         start_time: 900s
       - path: /opt/tortriage/venv/bin/python
+        environment: { PYTHONUNBUFFERED: "1" }
         args: >-
           -m tortriage --url http://11.0.0.20/payload.bin --runs 4
           --timeout-seconds 30 --tor-proxy socks5h://127.0.0.1:9000
