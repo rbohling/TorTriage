@@ -16,6 +16,9 @@ cd "$run_dir"
 cp -r "$source/conf" "$source/shadow.data.template" .
 chmod -R u+rwX,go-rwx shadow.data.template
 sed -i '/^ControlPort /d' conf/tor.common.torrc
+# Only the client gets a control port, configured as a real user's Tor should be:
+# loopback-only with cookie authentication.
+printf 'ControlPort 127.0.0.1:9051\nCookieAuthentication 1\n' >> shadow.data.template/hosts/torclient/torrc
 mkdir fixture
 truncate -s 524288 fixture/payload.bin
 sed "s/@BYTES_PER_SECOND@/$bytes_per_second/" /opt/tortriage/demo/shadow.yaml > shadow.yaml
@@ -34,6 +37,9 @@ fi
 for output in "$client"/python*.stdout; do
     [[ ! -f "$output" ]] || cat "$output"
 done
+for output in "$client"/python*.stderr; do
+    [[ ! -s "$output" ]] || cat "$output" >&2
+done
 python3 - "$report" "$scenario" "$run_dir" <<'PY'
 import json
 import sys
@@ -47,16 +53,18 @@ successful = sum(
     and (result["measurement"]["throughput_mbps"] or 0) > 0
     for result in report["results"]
 )
+attributed = sum(result["circuit"]["attribution"] == "verified" for result in report["results"])
 report["demo"] = {
     "scenario": scenario,
     "completed_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     "successful": successful,
+    "attributed": attributed,
     "run_id": Path(run_dir).name,
 }
 staged = Path(run_dir) / "dashboard-report.json"
 staged.write_text(json.dumps(report, indent=2), encoding="utf-8")
 latest = Path(run_dir).parent / f"{scenario}.json"
 staged.replace(latest)
-print(f"{successful}/{len(report['results'])} successful measurements. Dashboard report: {latest}")
+print(f"{successful}/{len(report['results'])} successful measurements, {attributed} attributed to a circuit. Dashboard report: {latest}")
 sys.exit(0 if successful == len(report["results"]) == 4 else 1)
 PY

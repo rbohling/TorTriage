@@ -6,6 +6,14 @@ from statistics import mean
 
 
 @dataclass(frozen=True)
+class SocksCredentials:
+    """Per-measurement SOCKS auth; Tor isolates streams with different credentials."""
+
+    username: str
+    password: str
+
+
+@dataclass(frozen=True)
 class CircuitInfo:
     entry: str | None = None
     middle: str | None = None
@@ -13,6 +21,7 @@ class CircuitInfo:
     source: str = "unavailable"
     attribution: str = "unverified"
     attribution_reason: str = "No measurement-to-stream correlation was established."
+    circuit_id: str | None = None
 
 
 @dataclass(frozen=True)

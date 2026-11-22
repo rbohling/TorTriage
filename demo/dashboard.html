@@ -19,14 +19,17 @@
   .results { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr)); gap: 16px; }
   article { overflow: hidden; background: #191c2a; border: 1px solid #333449; border-radius: 12px; padding: 22px; }
   article p { font-size: .9rem; margin: 8px 0 16px; }
-  .metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 18px 0; }
+  .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(78px, 1fr)); gap: 12px; margin: 18px 0; }
   .metrics div { border-top: 2px solid #7862aa; padding-top: 10px; }
   dt { font-size: .75rem; color: #b6b7cd; }
-  dd { margin: 4px 0 0; font-size: clamp(1rem, 3vw, 1.6rem); font-weight: 650; }
+  dd { margin: 4px 0 0; font-size: clamp(.95rem, 2.2vw, 1.25rem); font-weight: 650; }
+  .tablewrap { overflow-x: auto; }
   table { width: 100%; border-collapse: collapse; font-size: .81rem; }
-  th, td { text-align: left; padding: 9px 5px; border-bottom: 1px solid #333449; }
+  th, td { text-align: left; padding: 9px 5px; border-bottom: 1px solid #333449; vertical-align: top; }
   th { color: #c3bfd8; font-weight: 500; }
   code { font-family: 'IBM Plex Mono', monospace; color: #e4d7ff; overflow-wrap: anywhere; }
+  .path code { white-space: nowrap; }
+  .unverified { color: #f9bcad; cursor: help; }
   footer { color: #b6b7cd; font-size: .85rem; margin-top: 20px; }
   #connection { color: #f9bcad; }
   @media (max-width: 520px) {
@@ -50,7 +53,7 @@
     <article><h2>Baseline</h2><p>HTTP response pacing · Off</p><div id="baseline"></div></article>
     <article><h2>Constrained</h2><p>HTTP response pacing · 512 Kbit/s</p><div id="constrained"></div></article>
   </section>
-  <footer>First body chunk time includes Tor and HTTP setup. Circuit attribution is unverified.</footer>
+  <footer>First body chunk time includes Tor and HTTP setup. A path is shown only when the control port matched the measurement's own stream to a circuit; otherwise it reads unverified (hover for the reason).</footer>
 </main>
 <script>
   const scenarios = ['baseline', 'constrained'];
@@ -63,6 +66,29 @@
     return node;
   }
 
+  // Hops arrive as "$FINGERPRINT~nickname" (nickname optional).
+  function hopLabel(hop) {
+    const [fingerprint, nickname] = hop.slice(1).split('~');
+    return nickname || fingerprint.slice(0, 8);
+  }
+
+  function pathCell(circuit, row) {
+    const cell = row.insertCell();
+    const hops = [circuit.entry, circuit.middle, circuit.exit];
+    if (circuit.attribution !== 'verified' || hops.some(hop => !hop)) {
+      const node = element('span', 'unverified', cell);
+      node.className = 'unverified';
+      node.title = circuit.attribution_reason || '';
+      return;
+    }
+    cell.className = 'path';
+    cell.title = 'Circuit ' + circuit.circuit_id;
+    hops.forEach((hop, i) => {
+      if (i) cell.append(' → ');
+      element('code', hopLabel(hop), cell).title = hop;
+    });
+  }
+
   function render(scenario, report) {
     const panel = document.getElementById(scenario);
     panel.replaceChildren();
@@ -72,10 +98,14 @@
       return;
     }
     const {summary, results, demo} = report;
+    const verified = results.filter(run => run.circuit.attribution === 'verified');
+    const circuits = new Set(verified.map(run => run.circuit.circuit_id));
     const metrics = element('dl', '', panel);
     metrics.className = 'metrics';
     for (const [label, value] of [
       ['Successful samples', demo.successful + ' / ' + summary.runs],
+      ['Attributed to a circuit', verified.length + ' / ' + summary.runs],
+      ['Distinct circuits', circuits.size],
       ['Avg. first chunk', number(summary.avg_rtt_ms, 1) + ' ms'],
       ['Avg. throughput', number(summary.avg_throughput_mbps, 3) + ' Mb/s'],
     ]) {
@@ -83,15 +113,19 @@
       element('dt', label, item);
       element('dd', value, item);
     }
-    const table = element('table', '', panel);
+    const wrap = element('div', '', panel);
+    wrap.className = 'tablewrap';
+    const table = element('table', '', wrap);
     const header = element('tr', '', table.createTHead());
-    for (const title of ['Run', 'First chunk', 'Mb/s', 'Classification']) {
+    for (const title of ['Run', 'Path (entry → middle → exit)', 'First chunk', 'Mb/s', 'Classification']) {
       element('th', title, header).scope = 'col';
     }
     const body = table.createTBody();
     results.forEach((run, i) => {
       const row = body.insertRow();
-      for (const value of [i + 1, number(run.measurement.rtt_ms, 1), number(run.measurement.throughput_mbps, 3), run.classification.replaceAll('_', ' ')]) {
+      element('td', i + 1, row);
+      pathCell(run.circuit, row);
+      for (const value of [number(run.measurement.rtt_ms, 1), number(run.measurement.throughput_mbps, 3), run.classification.replaceAll('_', ' ')]) {
         element('td', value, row);
       }
     });

@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import time
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse, urlunparse
 
 import requests
 
-from .models import MeasurementResult
+from .models import MeasurementResult, SocksCredentials
 
 
 DEFAULT_TOR_PROXY = "socks5h://127.0.0.1:9050"
@@ -16,16 +16,26 @@ def _is_tor_proxy(proxy_url: str) -> bool:
     return parsed.scheme.lower() == "socks5h"
 
 
+def _proxy_with_credentials(proxy_url: str, credentials: SocksCredentials) -> str:
+    parsed = urlparse(proxy_url)
+    host_port = parsed.netloc.rpartition("@")[2]
+    userinfo = f"{quote(credentials.username, safe='')}:{quote(credentials.password, safe='')}"
+    return urlunparse(parsed._replace(netloc=f"{userinfo}@{host_port}"))
+
+
 def run_measurement(
     sample_url: str,
     *,
     timeout_seconds: float = 15.0,
     tor_proxy: str = DEFAULT_TOR_PROXY,
     max_download_bytes: int = 512 * 1024,
+    socks_credentials: SocksCredentials | None = None,
 ) -> MeasurementResult:
     if not _is_tor_proxy(tor_proxy):
         return MeasurementResult(rtt_ms=None, throughput_mbps=None, sample_url=sample_url)
 
+    if socks_credentials is not None:
+        tor_proxy = _proxy_with_credentials(tor_proxy, socks_credentials)
     proxies = {"http": tor_proxy, "https": tor_proxy}
     start = time.perf_counter()
     first_byte: float | None = None
