@@ -2,7 +2,7 @@
 <html lang="en">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>TorTriage · Shadow lab</title>
+<title>TorTriage · Live Tor and Shadow results</title>
 <style>
   :root { color-scheme: dark; font-family: Inter, system-ui, sans-serif; background: #10121b; color: #ececf6; }
   * { box-sizing: border-box; }
@@ -32,6 +32,21 @@
   .unverified { color: #f9bcad; cursor: help; }
   footer { color: #b6b7cd; font-size: .85rem; margin-top: 20px; }
   #connection { color: #f9bcad; }
+  .tabs { display: flex; gap: 8px; margin-bottom: 22px; }
+  .tabs button { font: inherit; color: #c3bfd8; background: transparent; border: 1px solid #423a60; border-radius: 8px; padding: 11px 18px; cursor: pointer; }
+  .tabs button[aria-selected="true"] { color: #f4edff; background: #35264f; border-color: #a28aca; }
+  .tabs button:focus-visible { outline: 2px solid #c6b0ff; outline-offset: 3px; }
+  [hidden] { display: none !important; }
+  .live-report { border-top: 3px solid #80cdbd; }
+  .live-report .metrics div { border-color: #80cdbd; }
+  .report-source { overflow-wrap: anywhere; color: #c3dcd6; font-size: .85rem; }
+  .empty { padding: 18px 0; }
+  .help { margin-top: 20px; }
+  .help h2 { font-size: 1.05rem; }
+  pre { white-space: pre-wrap; overflow-wrap: anywhere; background: #151824; border: 1px solid #333449; border-radius: 8px; padding: 16px; line-height: 1.65; font-size: .82rem; }
+  .target { overflow-wrap: anywhere; }
+  .shadow-intro { margin-bottom: 22px; }
+  .shadow-intro .route { margin: 0; }
   @media (max-width: 520px) {
     main { padding: 22px 16px; }
     header { padding-bottom: 16px; margin-bottom: 18px; }
@@ -40,24 +55,50 @@
 </style>
 <main>
   <header>
-    <p class="accent">Shadow private Tor lab</p>
+    <p class="accent">Tor performance lab</p>
     <h1>TorTriage</h1>
-    <p>Compare HTTP measurements through the simulated Tor network.</p>
+    <p>View completed live Tor measurements and compare controlled Shadow scenarios.</p>
+  </header>
+  <nav class="tabs" role="tablist" aria-label="Result source">
+    <button id="live-tab" role="tab" aria-selected="true" aria-controls="live-view" tabindex="0">Live Tor</button>
+    <button id="shadow-tab" role="tab" aria-selected="false" aria-controls="shadow-view" tabindex="-1">Shadow demo</button>
+  </nav>
+  <p id="connection" role="status"></p>
+  <section id="live-view" role="tabpanel" aria-labelledby="live-tab">
+    <article class="live-report">
+      <h2>Live Tor results</h2>
+      <p>Latest completed report from your live Tor tests. Refreshes automatically.</p>
+      <p id="live-source" class="report-source" aria-live="polite"></p>
+      <div id="live"></div>
+    </article>
+    <aside class="help" aria-labelledby="publish-title">
+      <h2 id="publish-title">Publish a live report</h2>
+      <p>Once the Tor client on this VM is ready, run this command in its SSH session. Each completed run saves a separate report for this view.</p>
+      <pre><code>tortriage --tor-proxy socks5h://127.0.0.1:9150 --url https://check.torproject.org/ --runs 3 --delay-seconds 2 --timeout-seconds 30 --json-output "$HOME/tortriage-live/live-$(date -u +%Y%m%dT%H%M%SZ)-$$.json"</code></pre>
+      <p>The check page is a connectivity test. Use a fixed-size file hosted by your team for throughput comparisons. This dashboard reads saved reports; it does not start measurements.</p>
+    </aside>
+  </section>
+  <section id="shadow-view" role="tabpanel" aria-labelledby="shadow-tab" hidden>
+    <div class="shadow-intro">
     <div class="route" aria-label="Simulated topology">
       <span>TorTriage client</span> → <span>Guard / middle pool · 4</span> → <span>Exit pool · 2</span> → <span>HTTP fixture</span>
       <span class="authority">1 directory authority</span>
     </div>
-  </header>
-  <p id="connection" role="status"></p>
+    </div>
   <section class="results" aria-label="Latest scenario results">
     <article><h2>Baseline</h2><p>HTTP response pacing · Off</p><div id="baseline"></div></article>
     <article><h2>Constrained</h2><p>HTTP response pacing · 512 Kbit/s</p><div id="constrained"></div></article>
   </section>
+  </section>
   <footer>First body chunk time includes Tor and HTTP setup. A path is shown only when the control port matched the measurement's own stream to a circuit; otherwise it reads unverified (hover for the reason).</footer>
 </main>
 <script>
-  const scenarios = ['baseline', 'constrained'];
-  const number = (value, digits) => value == null ? '—' : value.toFixed(digits);
+  const scenarios = ['baseline', 'constrained', 'live'];
+  const number = (value, digits) => typeof value === 'number' && Number.isFinite(value) ? value.toFixed(digits) : '—';
+  const savedTime = value => {
+    const date = new Date(value);
+    return value && Number.isFinite(date.getTime()) ? date.toLocaleString() : 'time unavailable';
+  };
 
   function element(tag, value, parent) {
     const node = document.createElement(tag);
@@ -68,21 +109,22 @@
 
   // Hops arrive as "$FINGERPRINT~nickname" (nickname optional).
   function hopLabel(hop) {
-    const [fingerprint, nickname] = hop.slice(1).split('~');
+    const [fingerprint, nickname] = hop.replace(/^\$/, '').split('~');
     return nickname || fingerprint.slice(0, 8);
   }
 
   function pathCell(circuit, row) {
+    circuit = circuit || {};
     const cell = row.insertCell();
     const hops = [circuit.entry, circuit.middle, circuit.exit];
-    if (circuit.attribution !== 'verified' || hops.some(hop => !hop)) {
+    if (circuit.attribution !== 'verified' || hops.some(hop => typeof hop !== 'string' || !hop)) {
       const node = element('span', 'unverified', cell);
       node.className = 'unverified';
       node.title = circuit.attribution_reason || '';
       return;
     }
     cell.className = 'path';
-    cell.title = 'Circuit ' + circuit.circuit_id;
+    cell.title = 'Circuit ' + (circuit.circuit_id || 'ID unavailable');
     hops.forEach((hop, i) => {
       if (i) cell.append(' → ');
       element('code', hopLabel(hop), cell).title = hop;
@@ -92,18 +134,32 @@
   function render(scenario, report) {
     const panel = document.getElementById(scenario);
     panel.replaceChildren();
+    if (scenario === 'live') {
+      const metadata = report && report.dashboard;
+      document.getElementById('live-source').textContent = metadata
+        ? metadata.report_name + ' · Saved ' + savedTime(metadata.saved_at)
+        : '';
+    }
     if (!report) {
-      element('p', 'Waiting for the first completed run.', panel);
-      element('code', 'vagrant ssh -c "tortriage-demo ' + scenario + '"', panel);
+      const empty = element('p', scenario === 'live'
+        ? 'No completed live report yet. Run the command below on the VM to publish one.'
+        : 'Waiting for the first completed run.', panel);
+      empty.className = 'empty';
+      if (scenario !== 'live') element('code', 'tortriage-demo ' + scenario, panel);
       return;
     }
     const {summary, results, demo} = report;
-    const verified = results.filter(run => run.circuit.attribution === 'verified');
-    const circuits = new Set(verified.map(run => run.circuit.circuit_id));
+    const successful = results.filter(run =>
+      typeof run.measurement.rtt_ms === 'number' && Number.isFinite(run.measurement.rtt_ms)
+      && typeof run.measurement.throughput_mbps === 'number'
+      && Number.isFinite(run.measurement.throughput_mbps) && run.measurement.throughput_mbps > 0
+    ).length;
+    const verified = results.filter(run => run.circuit && run.circuit.attribution === 'verified');
+    const circuits = new Set(verified.map(run => run.circuit.circuit_id).filter(Boolean));
     const metrics = element('dl', '', panel);
     metrics.className = 'metrics';
     for (const [label, value] of [
-      ['Successful samples', demo.successful + ' / ' + summary.runs],
+      ['Successful samples', successful + ' / ' + summary.runs],
       ['Attributed to a circuit', verified.length + ' / ' + summary.runs],
       ['Distinct circuits', circuits.size],
       ['Avg. first chunk', number(summary.avg_rtt_ms, 1) + ' ms'],
@@ -112,6 +168,14 @@
       const item = element('div', '', metrics);
       element('dt', label, item);
       element('dd', value, item);
+    }
+    if (scenario === 'live') {
+      const targets = [...new Set(results.map(run => run.measurement.sample_url).filter(Boolean))];
+      if (targets.length) {
+        const target = element('p', 'Target: ', panel);
+        target.className = 'target';
+        element('code', targets.join(', '), target);
+      }
     }
     const wrap = element('div', '', panel);
     wrap.className = 'tablewrap';
@@ -125,11 +189,33 @@
       const row = body.insertRow();
       element('td', i + 1, row);
       pathCell(run.circuit, row);
-      for (const value of [number(run.measurement.rtt_ms, 1), number(run.measurement.throughput_mbps, 3), run.classification.replaceAll('_', ' ')]) {
+      for (const value of [number(run.measurement.rtt_ms, 1), number(run.measurement.throughput_mbps, 3), (run.classification || 'unavailable').replaceAll('_', ' ')]) {
         element('td', value, row);
       }
     });
-    element('p', 'Completed ' + new Date(demo.completed_at).toLocaleString(), panel);
+    const time = scenario === 'live' ? report.dashboard && report.dashboard.saved_at : demo && demo.completed_at;
+    element('p', (scenario === 'live' ? 'Report saved ' : 'Completed ') + savedTime(time), panel);
+  }
+
+  const tabs = [document.getElementById('live-tab'), document.getElementById('shadow-tab')];
+  function selectTab(selected, focus = false) {
+    for (const tab of tabs) {
+      const active = tab === selected;
+      tab.setAttribute('aria-selected', String(active));
+      tab.tabIndex = active ? 0 : -1;
+      document.getElementById(tab.getAttribute('aria-controls')).hidden = !active;
+    }
+    if (focus) selected.focus();
+  }
+  for (const tab of tabs) {
+    tab.addEventListener('click', () => selectTab(tab));
+    tab.addEventListener('keydown', event => {
+      if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+      event.preventDefault();
+      const selected = event.key === 'Home' ? tabs[0]
+        : event.key === 'End' ? tabs[tabs.length - 1] : tabs.find(item => item !== tab);
+      selectTab(selected, true);
+    });
   }
 
   let previous;

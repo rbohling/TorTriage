@@ -68,7 +68,17 @@ jobs:
               report = reports[scenario]
               assert report["demo"]["scenario"] == scenario, scenario
               assert report["demo"]["successful"] == report["summary"]["runs"] == 4, scenario
-              assert all(sample["circuit"]["attribution"] == "unverified" for sample in report["results"])
+              for sample in report["results"]:
+                  circuit = sample["circuit"]
+                  assert circuit["attribution"] in ("verified", "unverified"), circuit
+                  assert circuit["attribution_reason"], circuit
+                  hops = [circuit[hop] for hop in ("entry", "middle", "exit")]
+                  if circuit["attribution"] == "verified":
+                      assert circuit["source"] == "stream-event-correlation", circuit
+                      assert circuit["circuit_id"], circuit
+                      assert all(isinstance(hop, str) and hop.startswith("$") for hop in hops), circuit
+                  else:
+                      assert all(hop is None for hop in hops), circuit
           baseline = reports["baseline"]["summary"]["avg_throughput_mbps"]
           constrained = reports["constrained"]["summary"]["avg_throughput_mbps"]
           assert 0 < constrained < baseline, (baseline, constrained)
