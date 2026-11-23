@@ -35,6 +35,74 @@ The latest reports are also available at
 [the JSON endpoint](http://127.0.0.1:8787/api/results).
 Run `vagrant halt` to stop the VM and keep its reports.
 
+## Live reports on the dashboard
+
+The dashboard can also show TorTriage JSON reports from a running local Tor
+client. It reads completed reports from `TORTRIAGE_LIVE_DIR`, which defaults to
+`~/tortriage-live` for the user running the dashboard. The dashboard reads reports;
+it does not start Tor or launch measurements. Run the CLI on the same machine
+and write its output into that directory.
+
+For example, with a Tor client already running locally on port 9150:
+
+```bash
+mkdir -p ~/tortriage-live
+tortriage --tor-proxy socks5h://127.0.0.1:9150 \
+  --runs 3 --delay-seconds 2 --timeout-seconds 30 \
+  --url https://check.torproject.org/ \
+  --json-output "$HOME/tortriage-live/live-$(date -u +%Y%m%dT%H%M%SZ)-$$.json"
+```
+
+Use the SOCKS port of your local Tor client; a system daemon usually uses 9050.
+Circuit attribution additionally needs a matching, authenticated control port;
+without one, measurements still run and paths remain unverified.
+The **Live Tor** tab selects the newest completed `report.json`, `report-*.json`,
+or `live-*.json` report from that directory. Partial, malformed, and oversized
+files (over 2 MiB) are skipped; completed reports with failed samples remain
+visible. The **Shadow demo** tab keeps the baseline and constrained results.
+A report reflects the machine that ran the measurements; a dashboard on the VM
+does not observe a teammate's separate Tor Browser automatically.
+
+### Update the existing Chameleon dashboard
+
+The updater targets the existing Chameleon VM with the dashboard service running
+as `cc`. From an SSH session on the VM, use the full commit SHA you want to deploy:
+
+```bash
+revision=FULL_40_CHARACTER_COMMIT_SHA
+update_dir=$(mktemp -d)
+curl -fsSL "https://raw.githubusercontent.com/rbohling/TorTriage/$revision/demo/update-dashboard.sh" \
+  -o "$update_dir/update-dashboard.sh" &&
+sudo bash "$update_dir/update-dashboard.sh" "$revision"
+```
+
+It updates only the dashboard Python/HTML files and its managed systemd drop-in.
+The existing service keeps running as `cc`, listens on `127.0.0.1:8787`, and reads
+live reports from `/home/cc/tortriage-live`. The updater backs up the deployed
+files and restores them if startup checks fail. Shadow, Tor services, simulation
+runs, and saved reports stay in place. No dependencies are installed or rebuilt.
+
+On the VM, run the CLI as `cc` and write reports to that live directory, as in the
+example above. Tor Browser or another local Tor client must already be running
+on the VM; the updater does not start one.
+
+Keep the dashboard private and use SSH forwarding from your computer. In Windows
+PowerShell, with the private key saved at the path shown:
+
+```powershell
+ssh -i "$env:USERPROFILE\.ssh\tortriage-testbed" -N -L 127.0.0.1:8787:127.0.0.1:8787 cc@129.114.26.213
+```
+
+On macOS/Linux:
+
+```bash
+ssh -i ~/.ssh/tortriage-testbed -N \
+  -L 127.0.0.1:8787:127.0.0.1:8787 cc@129.114.26.213
+```
+
+Keep the SSH session open and visit [the dashboard](http://127.0.0.1:8787).
+Your public IP must be allowed by the VM's SSH security group.
+
 ## Project scope and delivery constraints
 
 - **Team:** 3 cybersecurity students
